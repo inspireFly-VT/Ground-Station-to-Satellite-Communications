@@ -4,3 +4,10 @@ with open(r"blue.jpg",'rb') as jpg_file:
 
 # jpg_bytes now contains the raw byte data of the image
 print(jpg_bytes)
+
+imageName = "New_Image.jpg"
+# Assuming jpg_bytes contains the image byte data
+with open(imageName, 'wb') as new_image_file:
+    new_image_file.write(jpg_bytes)
+
+# This will create a new image file with the byte content
