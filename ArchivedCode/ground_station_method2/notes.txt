@@ -1,0 +1,16 @@
+Hey, this is Wills. I'm writing down some notes in case anyone else checks out the method 2 sending. I'm gonna write down my ideas
+so I don't seem crazy/someone can understand what I'm doing.
+
+My idea is to get the satellite to send down the number of packets it'll send.
+
+Then create a list of that size for bytearray objects with every value as None. I'll call this packet list for now.
+
+Then have the satellite send down every packet. Note, the packets will contain information on indices. Store the packet data
+in the given index in packet list.
+
+Next, compile a list of all the indicies in the packet list that still have the value of None. If it still has the value of None,
+then either the fcs number was incorrect or the groundstation simply didn't receive that packet.
+
+Send that list to the satellite, then have the satellite send down the packets at the given indices.
+
+Then this process repeats until every packet was sent and received properly.
