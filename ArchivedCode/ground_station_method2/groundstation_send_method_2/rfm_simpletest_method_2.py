@@ -9,25 +9,56 @@ import board
 import busio
 import digitalio
 import time
+import struct
 from adafruit_rfm import rfm9xfsk
 from groundstation_send_method_2 import Data_To_AX25_method_2
 
 def checkCorruptedPackets(packetList: list) -> list:
+    """
+    Takes a list storing packet data and returns a list of all the indices that
+    do not have a proper packet stored, i.e. None is stored at the index.
+
+    Args:
+        packetList (list): The packet list to be checked for None values
+
+    Returns:
+        list: A list of integers that represent the indices that are missing
+              packet values.
+    """
+    # Creates an empty list to append packet indices to
     corruptedPackets = []
+    
+    # Loops through each entry in the packetList and appends the index of
+    # the entry if packetList[i] is None
     for i in range(len(packetList)):
-        if i is None:
+        if packetList[i] is None:
             corruptedPackets.append(i)
-    if len(corruptedPackets) == 0:
-        return None
+            
+    # If the length of the corruptedPackets is still empty even after the packetList
+    # looped through, then there are no missing packets and None is returned
+#     if len(corruptedPackets) == 0:
+#         return None
+    # Returns the list of corrupted packet indices
     return corruptedPackets
 
-def continuousListening(packetList: list) -> list:
+def continuousListening(packetList: list, packetNumber: int) -> list:
+    """
+    Takes a list to add packet data to. Then, it listens for send messages
+    for certain amount of time. For each packet the ground station receives,
+    the packet is decoded and the packet data is stored.
+
+    Args:
+        packetList (list): The packet list for packet data to be added to.
+
+    Returns:
+        list: The packet list with the updated packet data
+    """
     # Creates a counter to keep count of the number of times the while loop below is run
     # Creates a boolean check to see if the last packet is received or not
     continueSending = True
     listeningCounter = 0
 
-    while listeningCounter < (numberOfPackets) and continueSending:
+    while listeningCounter < (packetNumber) and continueSending:
         # Increments listening counter
         listeningCounter += 1
         # Optionally change the receive timeout from its default of 0.5 seconds:
@@ -127,6 +158,9 @@ rfm = rfm9xfsk.RFM9xFSK(spi, CS, RESET, RADIO_FREQ_MHZ)
     # print("Sent: Hello World message!") 
     # time.sleep(1)
     
+# This is the callsign for our satellite and ground station
+callsign = "K4KDJ"
+    
 # Declares a variable to store the number of packets being sent
 numberOfPackets = -1
     
@@ -167,7 +201,8 @@ while True:
         
 # Prints out the number of expected packets
 print(f"Expected number of packets is {numberOfPackets}.")
-# Creates an empty list of the expected size
+# Creates an empty list of the expected size, filled with None values
+# Packet data will be stored in this
 packetList = []
 for i in range(numberOfPackets):
     packetList.append(None)
@@ -177,31 +212,37 @@ rfm.send("Send packets")
 
 # Wait to receive packets.
 print("Waiting for packets...")
-packetList = continuousListening(packetList)
+packetList = continuousListening(packetList, numberOfPackets)
 
 corruptedPackets = checkCorruptedPackets(packetList)
-while corruptedPackets is not None:
+while len(corruptedPackets) != 0:
     # Converts the list of corrupted/missing packets into a byte string, where each entry is 2 bytes long
     corruptedIndicesBytes = b''.join(struct.pack('h', num) for num in corruptedPackets)
     
     # Converts the corrupted indicies byte string into an AX25 frame to be sent
-    corruptedIndiciesFrame = Data_To_AX25_method_2.encode_ax25_frame(corruptedIndicesBytes)
+    corruptedIndicesFrame = Data_To_AX25_method_2.encode_ax25_frame(corruptedIndicesBytes, callsign, callsign, b'\x00', 1)
     
     # Sends AX25 frame of corrupted indicies
-    rfm.send(corruptedIndiciesFrame)
+    rfm.send(corruptedIndicesFrame)
     
     # Listens for satellite response with new packets
-    packetList = continuousListening(packetList)
+    packetList = continuousListening(packetList, len(corruptedPackets))
     
     # Rechecks packetList to update the corruptedPacketList
     corruptedPackets = checkCorruptedPackets(packetList)
-       
+    print(corruptedPackets)
+
+# Compiles the packet list into a byte array by appending each entry in packet list
+# into a byte array
 packetBytes = bytearray()
-for b in packetList:
+
+for i in range(len(packetList)):
+    b = packetList[i]
     if b is not None:
         packetBytes += b
+    # If an entry is None and previous code did not catch and fix it, that is reported here.
+    # The index of the None entry is recorded and that particular byte is skipped
     else:
-        print("There is a None packet present.")
+        print(f"There is a None packet present at packet index {i}.")
+# Prints out the bytearray that stores the bytes of the image
 print(packetBytes)
-        
-#receivedPacket = bytearray()
