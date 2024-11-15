@@ -8,6 +8,7 @@ import board
 import busio
 import digitalio
 import time
+import struct
 import math
 from adafruit_rfm import rfm9xfsk
 from satellite_send_method_2 import DataToAX25_method2
@@ -111,6 +112,8 @@ while(counter < len(jpg_bytes)):
     counter += step
     
     time.sleep(0.33)
+
+print("All packets sent")
  
 # Listens for the corrupted packets from Ground Station
 callsign = "K4KDJ"
@@ -121,9 +124,11 @@ while packet is None :
     print("No corrupted packets command received. Listening again...")
 
 corruptedPacketList = packet
+operatingMode, fcsCorrect, data, packetIndex = DataToAX25_method2.decode_ax25_frame(packet)
+corruptedPacketList = [struct.unpack('h', data[i:i+2])[0] for i in range(0, len(data), 2)]
 numCorruptedPackets = len(corruptedPacketList)
 
-for(index in corruptedPacketList):
+for index in corruptedPacketList:
     counter = index * step
     frame = DataToAX25_method2.encode_ax25_frame(jpg_bytes[counter : counter + step], callsign, callsign, b'\x00', index)
     
@@ -131,7 +136,7 @@ for(index in corruptedPacketList):
     print(f"Packet {index} sent: ",frame)
     print("Packet", index, " sent, ", numCorruptedPackets, " packets left to send")
     
-    numCorruptedPackets--
+    numCorruptedPackets = numCorruptedPackets - 1
 
 # # Working image transfer commented out to test packet transfers
 # while(counter < len(jpg_bytes)):
@@ -187,3 +192,4 @@ for(index in corruptedPacketList):
 #         # print it.
 #         rssi = rfm.last_rssi
 #         print(f"Received signal strength: {rssi} dB")
+
