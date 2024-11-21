@@ -1,0 +1,10 @@
+Hey, this is Wills McGraw just writing some quick notes in case some one
+clicks through here to see whats up.
+
+This is just me trying to mess around with the format we have for
+sending method 2. It's pretty much the same as groundstation_send_method_2,
+just with a bit more organization and changing up how functions are called.
+
+It's very much not done but I don't quite got time to finish it before leaving for Thanksgiving break.
+I'ma try to get back to it when I got time or when I get back from break,
+whichever happens first.
