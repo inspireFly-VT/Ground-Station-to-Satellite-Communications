@@ -4,17 +4,18 @@
 # Simple demo of sending and recieving data with the RFM9x or RFM69 radios.
 # Author: Jerry Needell
 
+
 import board
 import busio
 import digitalio
-import time
-import struct
-import math
 from adafruit_rfm import rfm9xfsk
-from satellite_send_method_2_1 import DataToAX25_method_2_1
+from groundstation_send_method_2_1 import ListeningTools
+from groundstation_send_method_2_1 import DataToAX25_2_1
+
 
 # Define radio parameters.
-RADIO_FREQ_MHZ = 915.0  # Frequency of the radio in Mhz. Must match your
+RADIO_FREQ_MHZ = 915.0
+# Frequency of the radio in Mhz. Must match your
 # module! Can be a value like 915.0, 433.0, etc.
 
 # Define pins connected to the chip, use these if wiring up the breakout according to the guide:
@@ -35,10 +36,8 @@ spi = busio.SPI(board.GP18, MOSI=board.GP19, MISO=board.GP16)
 
 # Use rfm9xfsk for two RFM9x radios or RFM9x to RFM69 using FSK
 
-
-
 rfm = rfm9xfsk.RFM9xFSK(spi, CS, RESET, RADIO_FREQ_MHZ)
-
+# rfm.modulation_type = 1
 # Use rfm69 for two RFM69 radios using FSK
 
 # from adafruit_rfm import rfm69
@@ -56,263 +55,104 @@ rfm = rfm9xfsk.RFM9xFSK(spi, CS, RESET, RADIO_FREQ_MHZ)
 # rfm.modulation_type = 1
 
 # Send a packet.  Note you can only send a packet containing up to 60 bytes for an RFM69
-# and 252 bytes for an RFM9x.
+# and 252 bytes forn  an RFM9x.
 # This is a limitation of the radio packet size, so if you need to send larger
 # amounts of data you will need to break it into smaller send calls.  Each send
 # call will wait for the previous one to finish before continuing.
 
-# jpg_file = open(r"Camera Function Test.jpg",'rb')
-
-# This opens the image file and reads it into a list of bytes
-jpg_file = open(r"blue.jpg", 'rb')
-jpg_bytes = jpg_file.read()
-
-# This is the callsign that is used as packet source and destination bytes
-callsign = "K4KDJ"
-
-# Sets up a counter and step variable to control what bytes are sent and how many are sent
-# at a time
-counter = 0
-step = 32
-
-# Calculates the number of packets that will be sent and then
-# converts it into bytes
-numberOfPackets = math.ceil(len(jpg_bytes) / step)
-numberOfPacketsBytes = numberOfPackets.to_bytes(2, "big")
-
-# Encodes the numberOfPacketsBytes into an AX25 frame
-numberOfPacketsFrame = DataToAX25_method_2_1.encode_ax25_frame(numberOfPacketsBytes, callsign, callsign, b'\x01', 0)
-
-# Sends the numberOfPacketsFrame
-rfm.send(numberOfPacketsFrame)
-
-# This loops through every [step] bytes in jpg_bytes, encodes it into an
-# AX25 frame, and then sends it.
-while(counter < len(jpg_bytes)):
-    # Calculates the index of the bytes being packeted and grabs the bytes to send
-    packetIndex = counter // step
-    packetBytes = jpg_bytes[counter : counter + step]
+# Creates a default, empty list 500 entries long that picture data will be stored in
+# packetList should be updated later to match the expected number of picture data packets
+packetList = []
+for i in range(500):
+    packetList.append(None)
     
-    # Encodes the bytes being sent into an AX25 packet frame
-    packetFrame = DataToAX25_method_2_1.encode_ax25_frame(packetBytes, callsign, callsign, b'\x02', packetIndex)
+# Creates a boolean value to check if the terminating command has been sent
+# Also a counter for checking the number of times no packet is received
+continueListening = True
+check = 0
     
-    # Sends the packeted data and prints out the status of the overal sending to the terminal
-    rfm.send(packetFrame)
-    print(f"Packet {packetIndex} sent: ", packetFrame)
-    print(counter, " bytes sent, ", len(jpg_bytes) - counter, " bytes left.")
-    
-    # Increments the counter so next set of bytes can be sent
-    counter += step
-    
-    # Sleep timer to allow the groundstation to catch packets
-    time.sleep(0.33)
+# Prints out that listening for packets is starting
+print("Listening for packets...")
 
-# Indiciates all packets have been sent.
-print("All packets sent")
+# Loops to listen for packets. If the terminating command is sent, continueListening becomes false
+# and looping ends
+# If check is over 5, meaning no packets were received five times in a row, then looping ends
+while continueListening and check < 5:
+    # Constant listening for a packet being sent from the satellite
+    # Changed the receive timeout from its default of 0.5 seconds to 5.0 seconds
+    packet = rfm.receive(timeout=5.0)
+    
+    # If no packet is received, then the loop is started over after incrementing check
+    if packet is None:
+        print("No packet received. Listening again...")
+        check += 1
+        continue
+    
+    # Resets check if a package is received
+    check = 0
+    
+    # Prints out the raw bytes of the packet
+    print(f"Received (Raw Bytes): {packet}")
+    
+    # Decodes the packet to get the operating mode, fcs value, data, and data index.
+    # These will be passed to functions later to record the data in the packet list
+    operatingMode, fcsCorrect, data, indexBytes = DataToAX25_2_1.decode_ax25_frame(packet)
+    
+    # Converts the indexBytes into an integer
+    dataIndex = int.from_bytes(indexBytes, 'big')
+    
+    # Checks the fcsCorrect value
+    # If false, something was corrupted during sending and the bytes were incorrect
+    # The loop is started over to listen again
+    if fcsCorrect is False:
+        continue
+    
+    # Attempts to convert the packet data into ASCII and print it out
+    try:
+        packet_text = str(packet, "ascii")
+        print(f"Received (ASCII) at index {dataIndex}: {packet_text}")
+    # If there is an error with printing the packet data in ASCII, the
+    # hex data for the packet is printed out.
+    except UnicodeError:
+        print(f"Packet {dataIndex}, Hex data: ", [hex(x) for x in packet])
 
-while True:
-    # Convert the send message into bytes
-    sendMessage = bytes("Send a list of the corrupted bytes", "utf-8")
+    # Reads in the RSSI (signal strength) of the last received message and
+    # prints it.
+    rssi = rfm.last_rssi
+    print(f"Received signal strength: {rssi} dB")
     
-    # Initializes a packet variable as none.
-    # It will store the received list of corrupted packet indices
-    packet = None
-    counter = 0
-    
-    # Encode the send message into an AX25 frame and send it
-    initSendFrame = DataToAX25_method_2_1.encode_ax25_frame(sendMessage, callsign, callsign, b'\x03', 1)
-    rfm.send(initSendFrame)
-    
-    # Loop until the list of corrupted packet indices is received.
-    while packet is None :
-        packet = rfm.receive(timeout=5.0)
-        print("No corrupted packet list received. Listening again...")
-        rfm.send(initSendFrame)
+    # Decides what function to call depending on the value of operatingMode
+    # Note, there could be potential errors if there is a stop in listening
+    # or 0x01 isn't sent first. 
+    #
+    # 0x01 indicates the number of packets for the picture was sent
+    # 0x02 indicates picture packet data was sent
+    # 0x03 indicates corrupted byte list was requested
+    # 0x04 indicates all packages were sent properly and to terminate listening
+    if operatingMode == b'\x01':
+        packetList = ListeningTools.get_packet_number(data)
+    elif operatingMode == b'\x02':
+        packetList[dataIndex] = data
+    elif operatingMode == b'\x03':
+        rfm.send(ListeningTools.send_corrupted_packets(packetList))
+    elif operatingMode == b'\x04':
+        continueListening = False
+        print("Received termination command.")
+    else:
+        print("Unrecognizable command received.")
         
-        # If counter is over 5, meaning no packet has been received 5 times in a row,
-        # loops are broken
-        counter += 1
-        if counter > 5:
-            break;
-    
-    # If counter is over 5, meaning no packet has been received 5 times in a row,
-    # loops are broken
-    if counter > 5:
-            break;
-    
-    # Resets counter
-    counter = 0
-    
-    # Decodes the received AX25 frame that contains the list of corrupted
-    # packet indices
-    operatingMode, fcsCorrect, data, packetIndex = DataToAX25_method_2_1.decode_ax25_frame(packet)
-    
-    # Converts the data bytes back into a list and then prints it
-    corruptedPacketList = [struct.unpack('h', data[i:i+2])[0] for i in range(0, len(data), 2)]
-    print(corruptedPacketList)
-    
-    # If the number of corrupted packets is 0, meaning the groundstation
-    # has all working packets, then the loop is terminated.
-    if len(corruptedPacketList) == 0:
-        break
+# Initializes an empty byte array for packet data to be added to
+packetBytes = bytearray()
 
-    # Loops through each index in the corruptedPacketList, encodes the bytes at the specified
-    # index, and then send them.
-    for index in corruptedPacketList:
-        # Calculates the counter based on the index and grabs the bytes to send.
-        counter = index * step
-        sendBytes = jpg_bytes[counter : counter + step]
-        
-        # Encodes the sendBytes into an AX25 frame
-        sendFrame = DataToAX25_method_2_1.encode_ax25_frame(sendBytes, callsign, callsign, b'\x02', index)
-        
-        # Sends the sendFrame and prints out related data
-        rfm.send(sendFrame)
-        print(f"Packet {index} sent: ",sendFrame)
-        print(f"Bytes: ", sendBytes)
-    
-        
-# Converts a message signifying that all bytes have been sent and encodes it into
-# an AX25 frame
-endMessage = bytes("All bytes have been sent. Terminating sending", "utf-8")
-endFrame = DataToAX25_method_2_1.encode_ax25_frame(endMessage, callsign, callsign, b'\x04', 1)
-
-# Sends the endFrame 4 times to ensure it is received
-for i in range(4):
-    rfm.send(endFrame)
-    time.sleep(1.0)
-    
-print("End frame sent. Terminating messages.")
-
-
-
-
-
-
-
-
-# # Sets up current index to put into Ground Station data array
-# curr_index = 0
-# 
-# # This is the callsign that is used as packet source and destination bytes
-# callsign = "K4KDJ"
-# packet = None
-# print("Listening for send command...")
-# while packet is None :
-#     packet = rfm.receive(timeout=5.0)
-#     print("No send command received. Listening again...")
-#     
-# numberOfPackets = math.ceil(len(jpg_bytes) / step)
-# numberOfPacketsBytes = numberOfPackets.to_bytes(2, "big")
-# frame = DataToAX25_method_2_1.encode_ax25_frame(numberOfPacketsBytes, callsign, callsign, b'\x00', 0)
-# rfm.send(frame)
-# 
-# # This loops through every [step] bytes in jpg_bytes and sends them to the ground station
-# while(counter < len(jpg_bytes)):
-#     packetIndex = counter // step
-#     # Encodes the bytes being send into AX25 packet form
-#     frame = DataToAX25_method_2_1.encode_ax25_frame(jpg_bytes[counter : counter + step], callsign, callsign, b'\x00', packetIndex)
-#     
-#     # Sends the packeted data and prints out the status of the overal sending to the terminal
-#     rfm.send(frame)
-#     print(f"Packet {packetIndex} sent: ",frame)
-#     print(counter, " bytes sent, ", len(jpg_bytes) - counter, " bytes left.")
-#     
-#     # Checks that the groundstation received the sent bytes. If the bytes were received the ground station
-#     # sends back a message to acknowledge that the bytes were received, then counter is increased to send
-#     # the next set of bytes
-#     #packet = rfm.receive(timeout=0.5)
-#     #if packet is not None:
-#       #  counter += step
-#     counter += step
-#     
-#     time.sleep(0.33)
-# 
-# print("All packets sent")
-#  
-# # Listens for the corrupted packets from Ground Station
-# callsign = "K4KDJ"
-# packet = None
-# print("Listening for corrupted packets command...")
-# 
-# while True:
-#     while packet is None :
-#         packet = rfm.receive(timeout=5.0)
-#         print("No corrupted packets command received. Listening again...")
-#     
-#     numCorruptedPackets = 0
-#     corruptedPacketList = packet
-#     operatingMode, fcsCorrect, data, packetIndex = DataToAX25_method_2_1.decode_ax25_frame(packet)
-#     corruptedPacketList = [struct.unpack('h', data[i:i+2])[0] for i in range(0, len(data), 2)]
-#     numCorruptedPackets = len(corruptedPacketList)
-#     
-#     if numCorruptedPackets == 0:
-#         break
-# 
-#     for index in corruptedPacketList:
-#         counter = index * step
-#         frame = DataToAX25_method_2_1.encode_ax25_frame(jpg_bytes[counter : counter + step], callsign, callsign, b'\x00', index)
-#         
-#         rfm.send(frame)
-#         print(f"Packet {index} sent: ",frame)
-#         print(numCorruptedPackets, " packets left to send")
-#         
-#         numCorruptedPackets = numCorruptedPackets - 1
-#     break
-# 
-# print("All corrupted packets (sent from GS) have been sent.")
-# 
-# # # Working image transfer commented out to test packet transfers
-# # while(counter < len(jpg_bytes)):
-# #     rfm.send(jpg_bytes[counter:counter+step])
-# #     print("sent: ",jpg_bytes[counter:counter+step])
-# #     print(counter, " bytes sent, ", len(jpg_bytes) - counter, " bytes left.")
-# #     packet = rfm.receive(timeout=0.5)
-# #     if packet is not None:
-# #         counter += step
-# 
-# 
-# # while(counter < len(jpg_bytes)):
-# #     rfm.send(counter.to_bytes(2,"big"))
-# #     print("sent",counter)
-# #     packet = rfm.receive(timeout=0.5)
-# #     if packet is not None:
-# #         counter += 1
-# 
-# 
-# # Original testing code commented out to test image byte sending     
-# # while(True):
-# #     rfm.send(bytes("Hello!\r\n", "utf-8"))
-# #     print("Sent Hello World message!")
-# #     time.sleep(1);
-# 
-# # Wait to receive packets.
-# # print("Waiting for packets...")
-# 
-# # while True:
-# #     # Optionally change the receive timeout from its default of 0.5 seconds:
-# #     # packet = rfm9x.receive(timeout=5.0)
-# #     packet = rfm.receive(timeout=5.0)
-# #     # If no packet was received during the timeout then None is returned.
-# #     if packet is None:
-# #         # Packet has not been received
-# #         rfm.send("not received")
-# #         print("Received nothing! Listening again...")
-# #     else:
-# #         # Received a packet!
-# #         # Print out the raw bytes of the packet:
-# #         rfm.send("received")
-# #         print(f"Received (raw bytes): {packet}")
-# #         # And decode to ASCII text and print it too.  Note that you always
-# #         # receive raw bytes and need to convert to a text format like ASCII
-# #         # if you intend to do string processing on your data.  Make sure the
-# #         # sending side is sending ASCII data before you try to decode!
-# #         try:
-# #             packet_text = str(packet, "ascii")
-# #             print(f"Received (ASCII): {packet_text}")
-# #         except UnicodeError:
-# #             print("Hex data: ", [hex(x) for x in packet])
-# #         # Also read the RSSI (signal strength) of the last received message and
-# #         # print it.
-# #         rssi = rfm.last_rssi
-# #         print(f"Received signal strength: {rssi} dB")
+# Loops through each entry in packetList and adds them to packetBytes
+for i in range(len(packetList)):
+    b = packetList[i]
+    if b is not None:
+        packetBytes += b
+    # If an entry is None and previous code did not catch and fix it, that is reported here.
+    # The index of the None entry is recorded and that particular byte is skipped in the
+    # adding process
+    else:
+        print(f"There is a None packet present at packet index {i}.")
+# Prints out the bytearray that stores the bytes of the image
+print(packetBytes)
