@@ -14,7 +14,8 @@ from groundstation_send_method_2_1 import DataToAX25_2_1
 
 
 # Define radio parameters.
-RADIO_FREQ_MHZ = 915.0  # Frequency of the radio in Mhz. Must match your
+RADIO_FREQ_MHZ = 915.0
+# Frequency of the radio in Mhz. Must match your
 # module! Can be a value like 915.0, 433.0, etc.
 
 # Define pins connected to the chip, use these if wiring up the breakout according to the guide:
@@ -59,14 +60,6 @@ rfm = rfm9xfsk.RFM9xFSK(spi, CS, RESET, RADIO_FREQ_MHZ)
 # amounts of data you will need to break it into smaller send calls.  Each send
 # call will wait for the previous one to finish before continuing.
 
-#message = "Hello world!\r\n"
-
-# while (True):
-    # rfm.send(bytes("Hello world\r\n", "utf-8"))
-    # print("Sent: Hello World message!") 
-    # time.sleep(1)
-    
-    
 # Creates a default, empty list 500 entries long that picture data will be stored in
 # packetList should be updated later to match the expected number of picture data packets
 packetList = []
@@ -105,44 +98,48 @@ while continueListening and check < 5:
     # These will be passed to functions later to record the data in the packet list
     operatingMode, fcsCorrect, data, indexBytes = DataToAX25_2_1.decode_ax25_frame(packet)
     
+    # Converts the indexBytes into an integer
+    dataIndex = int.from_bytes(indexBytes, 'big')
+    
     # Checks the fcsCorrect value
     # If false, something was corrupted during sending and the bytes were incorrect
     # The loop is started over to listen again
-    if fcsCorrect is True:
-        # Attempts to convert the packet data into ASCII and print it out
-        try:
-            packet_text = str(packet, "ascii")
-            print(f"Received (ASCII) at index {dataIndex}: {packet_text}")
-        # If there is an error with printing the packet data in ASCII, the
-        # hex data for the packet is printed out.
-        except UnicodeError:
-            print("Hex data: ", [hex(x) for x in packet])
+    if fcsCorrect is False:
+        continue
+    
+    # Attempts to convert the packet data into ASCII and print it out
+    try:
+        packet_text = str(packet, "ascii")
+        print(f"Received (ASCII) at index {dataIndex}: {packet_text}")
+    # If there is an error with printing the packet data in ASCII, the
+    # hex data for the packet is printed out.
+    except UnicodeError:
+        print(f"Packet {dataIndex}, Hex data: ", [hex(x) for x in packet])
 
-        # Reads in the RSSI (signal strength) of the last received message and
-        # prints it.
-        rssi = rfm.last_rssi
-        print(f"Received signal strength: {rssi} dB")
-        
-        # Decides what function to call depending on the value of operatingMode
-        # Note, there could be potential errors if there is a stop in listening
-        # or 0x01 isn't sent first. 
-        #
-        # 0x01 indicates the number of packets for the picture was sent
-        # 0x02 indicates picture packet data was sent
-        # 0x03 indicates corrupted byte list was requested
-        # 0x04 indicates all packages were sent properly and to terminate listening
-        if operatingMode == b'\x01':
-            packetList = ListeningTools.get_packet_number(data)
-        elif operatingMode == b'\x02':
-            dataIndex = int.from_bytes(indexBytes, 'big')
-            packetList[dataIndex] = data
-        elif operatingMode == b'\x03':
-            rfm.send(ListeningTools.send_corrupted_packets(packetList))
-            corruptedPacketsSent = True
-        elif operatingMode == b'\x04':
-            continueListening = False
-        else:
-            print("Unrecognizable command received.")
+    # Reads in the RSSI (signal strength) of the last received message and
+    # prints it.
+    rssi = rfm.last_rssi
+    print(f"Received signal strength: {rssi} dB")
+    
+    # Decides what function to call depending on the value of operatingMode
+    # Note, there could be potential errors if there is a stop in listening
+    # or 0x01 isn't sent first. 
+    #
+    # 0x01 indicates the number of packets for the picture was sent
+    # 0x02 indicates picture packet data was sent
+    # 0x03 indicates corrupted byte list was requested
+    # 0x04 indicates all packages were sent properly and to terminate listening
+    if operatingMode == b'\x01':
+        packetList = ListeningTools.get_packet_number(data)
+    elif operatingMode == b'\x02':
+        packetList[dataIndex] = data
+    elif operatingMode == b'\x03':
+        rfm.send(ListeningTools.send_corrupted_packets(packetList))
+    elif operatingMode == b'\x04':
+        continueListening = False
+        print("Received termination command.")
+    else:
+        print("Unrecognizable command received.")
         
 # Initializes an empty byte array for packet data to be added to
 packetBytes = bytearray()
