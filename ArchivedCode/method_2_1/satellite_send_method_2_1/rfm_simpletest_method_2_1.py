@@ -81,7 +81,7 @@ rfm.send(numberOfPacketsFrame)
 
 # Creates a list containing every index and then
 # calls a method to encode jpg_bytes into AX25 packets and send it
-totaList = range(numberOfPackets)
+totalList = range(numberOfPackets)
 ListeningToolsSAT.send_pic_data(jpg_bytes, rfm, step, totalList)
 
 # This tells the ground station to send a list of corrupted/missing packets to be resent
